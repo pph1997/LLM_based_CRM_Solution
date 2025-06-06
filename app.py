@@ -212,4 +212,5 @@ def upload():
 if __name__ == "__main__":
     os.makedirs("uploads", exist_ok=True)
     create_crm_table()
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 10000))  # Render provides this PORT
+    app.run(host='0.0.0.0', port=port)
