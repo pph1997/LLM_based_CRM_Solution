@@ -8,7 +8,7 @@
 # # Point to your ffmpeg bin directory
 
 # # --- CONFIGURE GEMINI ---
-# genai.configure(api_key="AIzaSyCudgD8b3DQHHhoQ48U7Z1e7-BbWtc2ULg")
+# genai.configure(api_key="xxxx")
 # model = genai.GenerativeModel(model_name="models/gemini-1.5-pro-latest")
 
 # ffmpeg_path = r"D:\Brother\ffmpeg\bin"
