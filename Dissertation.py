@@ -7,7 +7,7 @@ import json
 import os
 
 # --- CONFIGURE GEMINI ---
-genai.configure(api_key="AIzaSyCudgD8b3DQHHhoQ48U7Z1e7-BbWtc2ULg")
+genai.configure(api_key="xxxx")
 model = genai.GenerativeModel(model_name="models/gemini-1.5-pro-latest")
 
 ffmpeg_path = r"C:\Patrick's Documents\Learning\TCD\Dissertation\ffmpeg-2025-05-15-git-12b853530a-essentials_build\ffmpeg-2025-05-15-git-12b853530a-essentials_build\bin"
