@@ -86,7 +86,7 @@ def extract_requests_from_text(text):
 
     # Initialize DeepSeek API client
     client = OpenAI(
-        api_key="sk-4e8d9210119f44818082924d3ecf63f7",  
+        api_key="XXX",  
         base_url="https://api.deepseek.com"
     )
 
@@ -143,7 +143,7 @@ def extract_requests_from_text(text):
 
 def get_clinic_suggestions(clinic_name):
     client = OpenAI(
-        api_key="sk-4e8d9210119f44818082924d3ecf63f7", 
+        api_key="xxx", 
         base_url="https://api.deepseek.com"
     )
 
@@ -215,7 +215,7 @@ def get_contact_suggestions(prefix, first_name, surname, clinic_name=None):
         return []
 
     client = OpenAI(
-        api_key="sk-4e8d9210119f44818082924d3ecf63f7",
+        api_key="xxx",
         base_url="https://api.deepseek.com"
     )
 
