@@ -1,43 +1,735 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>CRM Voice Uploader</title>
+  <meta charset="UTF-8" />
+  <title>CRM Voice Uploader | Zoetis</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f8f9fa;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: auto;
+      background: white;
+      padding: 30px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border-radius: 12px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #004990;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 12px 20px;
+      background-color: #004990;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background-color: #0062cc;
+    }
+
+    h3 {
+      margin-top: 30px;
+      color: #333;
+    }
+
+    pre {
+      background-color: #f1f1f1;
+      padding: 15px;
+      border-radius: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    #loader {
+      display: none;
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    #loader span {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin: 0 2px;
+      background: #004990;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite ease-in-out both;
+    }
+
+    #loader span:nth-child(2) { animation-delay: -0.2s; }
+    #loader span:nth-child(3) { animation-delay: -0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    .request-block {
+      margin-bottom: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #eef6ff;
+    }
+
+    .note {
+      padding: 8px;
+      border-left: 4px solid #004990;
+      background: #eaf2fc;
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    .clinic-list {
+      margin-top: 5px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .clinic-btn {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+    }
+
+    .clinic-btn.red {
+      background-color: #dc3545;
+    }
+
+    .confirm-btn {
+      background-color: #28a745;
+      margin-top: 30px;
+      display: none;
+    }
+  </style>
 </head>
 <body>
-    <h1>Upload Sales Voice Note</h1>
+  <div class="container">
+    <h1>Zoetis CRM Voice Note Upload</h1>
     <form id="uploadForm" enctype="multipart/form-data">
-        <input type="file" name="audio" accept=".m4a,.mp3,.wav" required><br><br>
-        <button type="submit">Upload</button>
+      <input type="file" name="audio" accept=".m4a,.mp3,.wav" required />
+      <button type="submit">Upload & Process</button>
     </form>
-
+    <div id="loader"><span></span><span></span><span></span></div>
     <h3>Transcript:</h3>
     <pre id="transcript"></pre>
-
     <h3>CRM Data:</h3>
-    <pre id="crm_data"></pre>
+    <div id="crmDataContainer"></div>
+    <button id="confirmAllBtn" class="confirm-btn">✅ Confirm All & Save to Database</button>
+  </div>
 
-    <script>
-        const form = document.getElementById("uploadForm");
-        const transcriptEl = document.getElementById("transcript");
-        const crmDataEl = document.getElementById("crm_data");
+  <script>
+    const form = document.getElementById("uploadForm");
+    const transcriptEl = document.getElementById("transcript");
+    const crmContainer = document.getElementById("crmDataContainer");
+    const loader = document.getElementById("loader");
+    const confirmBtn = document.getElementById("confirmAllBtn");
+    let resultData = [];
 
-        form.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const formData = new FormData(form);
-            const response = await fetch("/upload", {
-                method: "POST",
-                body: formData,
-            });
-            const result = await response.json();
-
-            if (result.error) {
-                alert("Error: " + result.error);
-            } else {
-                transcriptEl.textContent = result.transcript;
-                crmDataEl.textContent = JSON.stringify(result.data, null, 2);
-            }
+    async function recheckContactAfterClinicChange(item) {
+      try {
+        const response = await fetch("/get_contact_match_status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clinic_name: item.data.clinic_name,
+            contact_prefix: item.data.contact_prefix || "",
+            contact_first_name: item.data.contact_first_name || "",
+            contact_surname: item.data.contact_surname || ""
+          })
         });
-    </script>
+        const resJson = await response.json();
+        item.contact_matched = resJson.contact_matched;
+        item.contact_suggestions = resJson.contacts || [];
+        return resJson;
+      } catch (err) {
+        console.error("Error fetching contact match status", err);
+        return { contact_matched: false, contacts: [] };
+      }
+    }
+
+    function checkFinalConfirm() {
+      if (resultData.every(d => d.clinic_matched && d.contact_matched)) {
+        confirmBtn.style.display = "inline-block";
+      }
+    }
+
+    async function enrichAddressIfMissing(item) {
+      const clinicName = item.data.clinic_name;
+      try {
+        const response = await fetch("/get_address_by_clinic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clinic_name: clinicName })
+        });
+        const enrich = await response.json();
+        if (enrich.shipping_address && !item.data.shipping_address)
+          item.data.shipping_address = enrich.shipping_address;
+        if (enrich.eircode && !item.data.eircode)
+          item.data.eircode = enrich.eircode;
+      } catch (e) {
+        console.warn("Address enrichment failed", e);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      transcriptEl.textContent = "";
+      crmContainer.innerHTML = "";
+      confirmBtn.style.display = "none";
+      loader.style.display = "block";
+      const formData = new FormData(form);
+
+      try {
+        const response = await fetch("/upload", {
+          method: "POST",
+          body: formData
+        });
+        const result = await response.json();
+        loader.style.display = "none";
+
+        if (result.error) return alert("Error: " + result.error);
+
+        transcriptEl.textContent = result.transcript;
+        resultData = result.results || [];
+
+        resultData.forEach((item, index) => {
+          const block = document.createElement("div");
+          block.className = "request-block";
+
+          const content = document.createElement("pre");
+          content.textContent = JSON.stringify(item.data, null, 2);
+          block.appendChild(content);
+
+          const note = document.createElement("div");
+          note.className = "note";
+          block.appendChild(note);
+
+          const updateCRMDisplay = () => content.textContent = JSON.stringify(item.data, null, 2);
+
+          const showContactConfirm = () => {
+            note.innerHTML = "⚠️ Clinic matched, but contact not found. Confirm if it is one of the following:";
+            const contactList = document.createElement("div");
+            contactList.className = "clinic-list";
+            const uniqueContacts = [...new Set(item.contact_suggestions || [])];
+            uniqueContacts.forEach(c => {
+              const btn = document.createElement("button");
+              btn.className = "clinic-btn";
+              btn.textContent = c;
+              btn.onclick = async () => {
+                item.contact_matched = true;
+                const parts = c.split(" ");
+                item.data.contact_prefix = parts[0];
+                item.data.contact_first_name = parts.length === 3 ? parts[1] : null;
+                item.data.contact_surname = parts[parts.length - 1];
+                await enrichAddressIfMissing(item);
+                updateCRMDisplay();
+                note.innerHTML = "✅ Clinic and contact confirmed.";
+                checkFinalConfirm();
+              };
+              contactList.appendChild(btn);
+            });
+            const fallback = document.createElement("button");
+            fallback.textContent = "Not listed above — will create new contact.";
+            fallback.className = "clinic-btn red";
+            fallback.onclick = async () => {
+              item.contact_matched = true;
+              await enrichAddressIfMissing(item);
+              updateCRMDisplay();
+              note.innerHTML = "✅ Please review and confirm.";
+              checkFinalConfirm();
+            };
+            contactList.appendChild(fallback);
+            note.appendChild(contactList);
+          };
+
+          if (!item.clinic_matched) {
+            note.innerHTML = "⚠️ Clinic not found. Confirm if it is one of the following:";
+            const clinicList = document.createElement("div");
+            clinicList.className = "clinic-list";
+            item.clinic_suggestions.forEach(c => {
+              const btn = document.createElement("button");
+              btn.className = "clinic-btn";
+              btn.textContent = c;
+              btn.onclick = async () => {
+                item.clinic_matched = true;
+                item.data.clinic_name = c;
+                await enrichAddressIfMissing(item);
+                updateCRMDisplay();
+                note.innerHTML = "Checking contact...";
+                const resJson = await recheckContactAfterClinicChange(item);
+                if (resJson.contact_matched) {
+                  note.innerHTML = "✅ Clinic and contact matched. Please review and confirm.";
+                  checkFinalConfirm();
+                } else {
+                  note.innerHTML = "";
+                  showContactConfirm();
+                }
+              };
+              clinicList.appendChild(btn);
+            });
+            const fallback = document.createElement("button");
+            fallback.textContent = "Not listed above — will create new clinic.";
+            fallback.className = "clinic-btn red";
+            fallback.onclick = async () => {
+              item.clinic_matched = true;
+              item.contact_matched = true;
+              await enrichAddressIfMissing(item);
+              updateCRMDisplay();
+              note.innerHTML = "✅ Please review and confirm.";
+              checkFinalConfirm();
+            };
+            clinicList.appendChild(fallback);
+            note.appendChild(clinicList);
+          } else if (!item.contact_matched) {
+            note.innerHTML = "Checking contact...";
+            recheckContactAfterClinicChange(item).then(async resJson => {
+              if (resJson.contact_matched) {
+                await enrichAddressIfMissing(item);
+                note.innerHTML = "✅ Clinic and contact matched. Please review and confirm.";
+                updateCRMDisplay();
+                checkFinalConfirm();
+              } else {
+                note.innerHTML = "";
+                showContactConfirm();
+              }
+            });
+          } else {
+            enrichAddressIfMissing(item).then(() => {
+              updateCRMDisplay();
+              note.textContent = "✅ Clinic and contact matched. Please review and confirm.";
+              checkFinalConfirm();
+            });
+          }
+
+          crmContainer.appendChild(block);
+        });
+      } catch (err) {
+        loader.style.display = "none";
+        alert("Upload failed.");
+      }
+    });
+
+    confirmBtn.addEventListener("click", async () => {
+      if (!resultData.length) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Saving...";
+
+      try {
+        const res = await fetch("/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requests: resultData.map(r => r.data) })
+        });
+        const resJson = await res.json();
+        if (resJson.success) {
+          alert("✅ All records saved to database.");
+          confirmBtn.textContent = "✅ Done";
+        } else {
+          alert("❌ Save failed.");
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Confirm All & Save to Database";
+        }
+      } catch (e) {
+        alert("❌ Error occurred while saving.");
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Confirm All & Save to Database";
+      }
+    });
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CRM Voice Uploader | Zoetis</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f8f9fa;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: auto;
+      background: white;
+      padding: 30px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border-radius: 12px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #004990;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 12px 20px;
+      background-color: #004990;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background-color: #0062cc;
+    }
+
+    h3 {
+      margin-top: 30px;
+      color: #333;
+    }
+
+    pre {
+      background-color: #f1f1f1;
+      padding: 15px;
+      border-radius: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    #loader {
+      display: none;
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    #loader span {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin: 0 2px;
+      background: #004990;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite ease-in-out both;
+    }
+
+    #loader span:nth-child(2) { animation-delay: -0.2s; }
+    #loader span:nth-child(3) { animation-delay: -0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    .request-block {
+      margin-bottom: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #eef6ff;
+    }
+
+    .note {
+      padding: 8px;
+      border-left: 4px solid #004990;
+      background: #eaf2fc;
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    .clinic-list {
+      margin-top: 5px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .clinic-btn {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+    }
+
+    .clinic-btn.red {
+      background-color: #dc3545;
+    }
+
+    .confirm-btn {
+      background-color: #28a745;
+      margin-top: 30px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Zoetis CRM Voice Note Upload</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" name="audio" accept=".m4a,.mp3,.wav" required />
+      <button type="submit">Upload & Process</button>
+    </form>
+    <div id="loader"><span></span><span></span><span></span></div>
+    <h3>Transcript:</h3>
+    <pre id="transcript"></pre>
+    <h3>CRM Data:</h3>
+    <div id="crmDataContainer"></div>
+    <button id="confirmAllBtn" class="confirm-btn">✅ Confirm All & Save to Database</button>
+  </div>
+
+  <script>
+    const form = document.getElementById("uploadForm");
+    const transcriptEl = document.getElementById("transcript");
+    const crmContainer = document.getElementById("crmDataContainer");
+    const loader = document.getElementById("loader");
+    const confirmBtn = document.getElementById("confirmAllBtn");
+    let resultData = [];
+
+    async function recheckContactAfterClinicChange(item) {
+      try {
+        const response = await fetch("/get_contact_match_status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clinic_name: item.data.clinic_name,
+            contact_prefix: item.data.contact_prefix || "",
+            contact_first_name: item.data.contact_first_name || "",
+            contact_surname: item.data.contact_surname || ""
+          })
+        });
+        const resJson = await response.json();
+        item.contact_matched = resJson.contact_matched;
+        item.contact_suggestions = resJson.contacts || [];
+        return resJson;
+      } catch (err) {
+        console.error("Error fetching contact match status", err);
+        return { contact_matched: false, contacts: [] };
+      }
+    }
+
+    function checkFinalConfirm() {
+      if (resultData.every(d => d.clinic_matched && d.contact_matched)) {
+        confirmBtn.style.display = "inline-block";
+      }
+    }
+
+    async function enrichAddressIfMissing(item) {
+      const clinicName = item.data.clinic_name;
+      try {
+        const response = await fetch("/get_address_by_clinic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clinic_name: clinicName })
+        });
+        const enrich = await response.json();
+        if (enrich.shipping_address && !item.data.shipping_address)
+          item.data.shipping_address = enrich.shipping_address;
+        if (enrich.eircode && !item.data.eircode)
+          item.data.eircode = enrich.eircode;
+      } catch (e) {
+        console.warn("Address enrichment failed", e);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      transcriptEl.textContent = "";
+      crmContainer.innerHTML = "";
+      confirmBtn.style.display = "none";
+      loader.style.display = "block";
+      const formData = new FormData(form);
+
+      try {
+        const response = await fetch("/upload", {
+          method: "POST",
+          body: formData
+        });
+        const result = await response.json();
+        loader.style.display = "none";
+
+        if (result.error) return alert("Error: " + result.error);
+
+        transcriptEl.textContent = result.transcript;
+        resultData = result.results || [];
+
+        resultData.forEach((item, index) => {
+          const block = document.createElement("div");
+          block.className = "request-block";
+
+          const content = document.createElement("pre");
+          content.textContent = JSON.stringify(item.data, null, 2);
+          block.appendChild(content);
+
+          const note = document.createElement("div");
+          note.className = "note";
+          block.appendChild(note);
+
+          const updateCRMDisplay = () => content.textContent = JSON.stringify(item.data, null, 2);
+
+          const showContactConfirm = () => {
+            note.innerHTML = "⚠️ Clinic matched, but contact not found. Confirm if it is one of the following:";
+            const contactList = document.createElement("div");
+            contactList.className = "clinic-list";
+            const uniqueContacts = [...new Set(item.contact_suggestions || [])];
+            uniqueContacts.forEach(c => {
+              const btn = document.createElement("button");
+              btn.className = "clinic-btn";
+              btn.textContent = c;
+              btn.onclick = async () => {
+                item.contact_matched = true;
+                const parts = c.split(" ");
+                item.data.contact_prefix = parts[0];
+                item.data.contact_first_name = parts.length === 3 ? parts[1] : null;
+                item.data.contact_surname = parts[parts.length - 1];
+                await enrichAddressIfMissing(item);
+                updateCRMDisplay();
+                note.innerHTML = "✅ Clinic and contact confirmed.";
+                checkFinalConfirm();
+              };
+              contactList.appendChild(btn);
+            });
+            const fallback = document.createElement("button");
+            fallback.textContent = "Not listed above — will create new contact.";
+            fallback.className = "clinic-btn red";
+            fallback.onclick = async () => {
+              item.contact_matched = true;
+              await enrichAddressIfMissing(item);
+              updateCRMDisplay();
+              note.innerHTML = "✅ Please review and confirm.";
+              checkFinalConfirm();
+            };
+            contactList.appendChild(fallback);
+            note.appendChild(contactList);
+          };
+
+          if (!item.clinic_matched) {
+            note.innerHTML = "⚠️ Clinic not found. Confirm if it is one of the following:";
+            const clinicList = document.createElement("div");
+            clinicList.className = "clinic-list";
+            item.clinic_suggestions.forEach(c => {
+              const btn = document.createElement("button");
+              btn.className = "clinic-btn";
+              btn.textContent = c;
+              btn.onclick = async () => {
+                item.clinic_matched = true;
+                item.data.clinic_name = c;
+                await enrichAddressIfMissing(item);
+                updateCRMDisplay();
+                note.innerHTML = "Checking contact...";
+                const resJson = await recheckContactAfterClinicChange(item);
+                if (resJson.contact_matched) {
+                  note.innerHTML = "✅ Clinic and contact matched. Please review and confirm.";
+                  checkFinalConfirm();
+                } else {
+                  note.innerHTML = "";
+                  showContactConfirm();
+                }
+              };
+              clinicList.appendChild(btn);
+            });
+            const fallback = document.createElement("button");
+            fallback.textContent = "Not listed above — will create new clinic.";
+            fallback.className = "clinic-btn red";
+            fallback.onclick = async () => {
+              item.clinic_matched = true;
+              item.contact_matched = true;
+              await enrichAddressIfMissing(item);
+              updateCRMDisplay();
+              note.innerHTML = "✅ Please review and confirm.";
+              checkFinalConfirm();
+            };
+            clinicList.appendChild(fallback);
+            note.appendChild(clinicList);
+          } else if (!item.contact_matched) {
+            note.innerHTML = "Checking contact...";
+            recheckContactAfterClinicChange(item).then(async resJson => {
+              if (resJson.contact_matched) {
+                await enrichAddressIfMissing(item);
+                note.innerHTML = "✅ Clinic and contact matched. Please review and confirm.";
+                updateCRMDisplay();
+                checkFinalConfirm();
+              } else {
+                note.innerHTML = "";
+                showContactConfirm();
+              }
+            });
+          } else {
+            enrichAddressIfMissing(item).then(() => {
+              updateCRMDisplay();
+              note.textContent = "✅ Clinic and contact matched. Please review and confirm.";
+              checkFinalConfirm();
+            });
+          }
+
+          crmContainer.appendChild(block);
+        });
+      } catch (err) {
+        loader.style.display = "none";
+        alert("Upload failed.");
+      }
+    });
+
+    confirmBtn.addEventListener("click", async () => {
+      if (!resultData.length) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Saving...";
+
+      try {
+        const res = await fetch("/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requests: resultData.map(r => r.data) })
+        });
+        const resJson = await res.json();
+        if (resJson.success) {
+          alert("✅ All records saved to database.");
+          confirmBtn.textContent = "✅ Done";
+        } else {
+          alert("❌ Save failed.");
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Confirm All & Save to Database";
+        }
+      } catch (e) {
+        alert("❌ Error occurred while saving.");
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Confirm All & Save to Database";
+      }
+    });
+  </script>
 </body>
 </html>
