@@ -2,7 +2,7 @@
 *A Proof-of-Concept for Zoetis Sales Representatives*
 
 ## 🎥 Video Demo  
-📽️ [Watch our project walkthrough here](
+📽️ [Watch our project walkthrough here](<iframe src="https://www.linkedin.com/embed/feed/update/urn:li:ugcPost:7361767865584082946?collapsed=1" height="508" width="504" frameborder="0" allowfullscreen="" title="Embedded post"></iframe>)
 
 ---
 
